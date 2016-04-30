@@ -29,7 +29,7 @@ class Server(object):
             sys.exit(0)
 
         self.server.listen(self.connectionsMax)
-        self.connectedList = []
+
         self.userListPrivate = []
         self.userList = []
         self.connections = 0
@@ -53,17 +53,17 @@ class Server(object):
 
 def getConn(server, user):
     conn = None
-    for i, userTemp in enumerate(server.userList):
-        if userTemp == user:
-            conn = server.userList[i + 1]
+    for dataTemp in server.userList:
+        if dataTemp[0] == user:
+            conn = dataTemp[1]
             break
     return conn
 
 
 def searchUser(server, user):
     search = False
-    for userTemp in server.userList:
-        if userTemp == user:
+    for dataTemp in server.userList:
+        if dataTemp[0] == user:
             search = True
             break
     return search
@@ -87,10 +87,58 @@ def defineUser(server, conn):
     return user
 
 
+def privateCommunication(server, conn, username, data, idUser_PrivateConversation, endConversation):
+    if idUser_PrivateConversation % 2 == 0:
+        userDest = server.userListPrivate[idUser_PrivateConversation + 1][0]
+    else:
+        userDest = server.userListPrivate[idUser_PrivateConversation - 1][0]
+
+    connDest = None
+    for dataTemp in server.userListPrivate:
+        if dataTemp[0] == userDest:
+            connDest = dataTemp[1]
+
+    if endConversation is False:
+        server.sendData(connDest, data)
+    else:
+        addDataUserList(server.userList, conn, username)
+        addDataUserList(server.userList, connDest, userDest)
+
+        textExit = '\nA conversa privada foi finalizada\nVocê voltou para o chat público\n'
+        server.sendData(conn, textExit)
+
+        data = '\n' + str(username) + ' saiu da conversa privada' + str(textExit)
+        server.sendData(connDest, data)
+
+        for i, dataTemp in enumerate(server.userListPrivate):  # clear list
+            if dataTemp[0] == username or dataTemp[0] == userDest:
+                del server.userListPrivate[i]
+                if i % 2 == 0:
+                    del server.userListPrivate[i]
+                else:
+                    del server.userListPrivate[i - 1]
+
+# end private communication
+
+
+def publicCommunication(server, conn, data):
+    for dataTemp in server.userList:
+        if dataTemp[1] != conn:
+            server.sendData(dataTemp[1], data)
+# end public communication
+
+
+def addDataUserList(listUser, conn, user):
+    listUser.append([])
+    position = len(listUser) - 1
+
+    listUser[position].append(user)
+    listUser[position].append(conn)
+
+
 def privateConnClear(server, user):
-    for i, userTemp in enumerate(server.userList):
-        if userTemp == user:
-            del server.userList[i]
+    for i, dataTemp in enumerate(server.userList):
+        if dataTemp[0] == user:
             del server.userList[i]
             break
 
@@ -100,20 +148,16 @@ def sendData(server, conn):
 
     print str(user) + ' se conectou ao servidor'
 
-    server.userList.append(user)
-    server.userList.append(conn)
-
-    # server.userList
-    # i%2 == 0 -> user
-    # i%2 != 0 -> conn
+    addDataUserList(server.userList,conn,user)
 
     msgUER = '\n** ' + str(user) + ' entrou na sala'
-    for i,connTemp in enumerate(server.userList): # msg user entered the room
-        if connTemp != conn and (i%2 != 0): server.sendData(connTemp, msgUER)
+    for dataTemp in server.userList: # msg user entered the room
+        if dataTemp[1] != conn:
+            server.sendData(dataTemp[1], msgUER)
 
     msg = 'Users connected: '
-    for i, user in enumerate(server.userList):
-        if i%2 == 0: msg = str(msg) + str(user) + ' '
+    for dataTemp in server.userList:
+        msg = str(msg) + str(dataTemp[0]) + ' '
     server.sendData(conn, msg)
 
     control = True # control while
@@ -146,59 +190,26 @@ def sendData(server, conn):
                     break
 
             if privateConversation is True: # private communication
-
-                if idUser_PrivateConversation % 2 == 0:
-                    userDest = server.userListPrivate[idUser_PrivateConversation + 1][0]
-                else:
-                    userDest = server.userListPrivate[idUser_PrivateConversation - 1][0]
-
-                connDest = None
-                for dataTemp in server.userListPrivate:
-                    if dataTemp[0] == userDest:
-                        connDest = dataTemp[1]
-
-                if endConversation is False:
-                    server.sendData(connDest, data)
-                else:
-                    server.userList.append(username)
-                    server.userList.append(conn)
-                    server.userList.append(userDest)
-                    server.userList.append(connDest)
-
-                    textExit = '\nA conversa privada foi finalizada\nVocê voltou para o chat público\n'
-                    server.sendData(conn, textExit)
-
-                    data = '\n' + str(username) + ' saiu da conversa privada' + str(textExit)
-                    server.sendData(connDest, data)
-
-                    for i, dataTemp in enumerate(server.userListPrivate): # clear list
-                        if dataTemp[0] == username or dataTemp[0] == userDest:
-                            del server.userListPrivate[i]
-                            if i % 2 == 0:
-                                del server.userListPrivate[i]
-                            else:
-                                del server.userListPrivate[i-1]
-
-            # end private communication
-
+                privateCommunication(server, conn, username, data, idUser_PrivateConversation, endConversation)
             else : # public communication
                 if endConversation is True:
                     control = False
                     data = username + ' saiu da conversa'
 
-                for i, connTemp in enumerate(server.userList):
-                    if i%2 != 0 and connTemp != conn:
-                        server.sendData(connTemp, data)
+                publicCommunication(server, conn, data)
 
         elif data[0] == '#':  # private communication request
             trash, userSender, userReceiver = data.split('#') # user1 wants to talk to user2
             flagUser = searchUser(server, userReceiver)
 
+            if userSender == userReceiver:
+                flagUser = False
+
             if flagUser is True:
                 newData = '+' + userSender
-                for i, userTemp in enumerate(server.userList):
-                    if userTemp == userReceiver:
-                        connReceiver = server.userList[i + 1]
+                for dataTemp in server.userList:
+                    if dataTemp[0] == userReceiver:
+                        connReceiver = dataTemp[1]
                         break
                 server.sendData(connReceiver, newData)
             else:
@@ -214,38 +225,21 @@ def sendData(server, conn):
             server.sendData(connRes, msgUser1)
             server.sendData(conn, msgUser2)
 
-            server.userListPrivate.append([])
-
-            position = len(server.userListPrivate) - 1
-
-            server.userListPrivate[position].append(user1)
-            server.userListPrivate[position].append(connRes)
-
-            server.userListPrivate.append([])
-            position = len(server.userListPrivate) - 1
-
-            server.userListPrivate[position].append(user2)
-            server.userListPrivate[position].append(conn)
+            addDataUserList(server.userListPrivate, connRes, user1)
+            addDataUserList(server.userListPrivate, conn, user2)
 
             privateConnClear(server, user1)
             privateConnClear(server, user2)
 
     # end while
 
-    for i, connTemp in enumerate(server.connectedList): # clear connectedList
-        if connTemp == conn:
-            del server.connectedList[i]
+    connTemp = None
+    for i, dataTemp in enumerate(server.userList): # clear userList
+        if dataTemp[1] == conn:
+            del server.userList[i] # conn
             break
 
     server.connections -= 1
-
-    connTemp = None
-    for i, connTemp in enumerate(server.userList): # clear userList
-        if connTemp == conn:
-            del server.userList[i] # conn
-            del server.userList[i-1]  # username
-            break
-
     conn.close()
 
     print '\nstatus server: connections = ', server.connections
@@ -261,7 +255,6 @@ def searchConnection(server):  # maps new connections
                 conn.send("connectedServer")
                 print 'conn: ', conn
                 server.connections += 1
-                server.connectedList.append(conn)
             else: # server full
                 assert isinstance(conn.send, object)
                 conn.send("ERROcrowdedServer")
