@@ -22,7 +22,7 @@ class Server(object):
         print 'Socket created'
 
         try:
-            self.server.bind((self.host, self.port))
+            self.server.bind(('', self.port))
         except socket.error as msg:
             print 'Bind failed. Error Code : ' + str(msg[0]) + ' Message ' + msg[1]
             self.socket.close()
@@ -34,12 +34,23 @@ class Server(object):
         self.userList = []
         self.connections = 0
 
+        self.showPublicCommunication = True
+
     def searchConnection(self):
         connData = self.server.accept()
         assert isinstance(connData, object)
         return connData
 
-    def sendData(self, conn, data):
+    def sendToAll(self, conn, data):
+        for dataTemp in self.userList:  # msg user entered the room
+            connTemp = dataTemp[1]
+            if connTemp != conn:
+                connTemp.send(data)
+
+    def sendToMe(self, conn, data):
+        conn.send(data)
+
+    def sendPrivate(self, conn, data):
         conn.send(data)
 
     def receiveData(self, conn):
@@ -49,116 +60,108 @@ class Server(object):
     def endConnection(self):
         self.server.close()
 
-# end Class Server
+    def searchUser(self, data):
+        for dataTemp in self.userList:
+            for dataTemp2 in dataTemp:
+                if dataTemp2 == data:
+                    return True
+        
+        for dataTemp in self.userListPrivate:
+            for dataTemp2 in dataTemp:
+                if dataTemp2 == data:
+                    return True
+                    
+        return False
 
-def getConn(server, user):
-    conn = None
-    for dataTemp in server.userList:
-        if dataTemp[0] == user:
-            conn = dataTemp[1]
-            break
-    return conn
+    def defineUser(self, conn):
+        while True:
+            username = server.receiveData(conn)
+            if not username: continue
 
+            if self.searchUser(username) is True:
+                server.sendToMe(conn, str(username) + ' já está sendo utilizado.')
+            else:
+                self.userList.append([])
+                id = len(self.userList) - 1
+                self.userList[id].append(username)
+                self.userList[id].append(conn)
+                return username
 
-def searchUser(server, user):
-    search = False
-    for dataTemp in server.userList:
-        if dataTemp[0] == user:
-            search = True
-            break
-    return search
+    def saveUser(self, username, conn):
+        self.userList.append([])
+        id = len(self.userList) - 1
+        self.userList[id].append(username)
+        self.userList[id].append(conn)
 
+    def getUser(self, data):
+        user = []
+        for i, dataTemp in enumerate(self.userList):
+            if dataTemp[0] == data or dataTemp[1] == data:
+                user.append(dataTemp[0])
+                user.append(dataTemp[1])
+                user.append(i)
+                return user
+        return None
 
-def defineUser(server, conn):
-    userInvalid = True
-    user = None
+    def setUsersCommunicationPivate(self, username1, conn1, username2, conn2):
+        # userListPrivate -> username1, conn1, username2, conn2
 
-    while userInvalid is True:
-        userInvalid = False
-        user = server.receiveData(conn)
+        self.userListPrivate.append([])
+        id = len(self.userListPrivate) - 1
+        # 1º user
+        self.userListPrivate[id].append(username1)
+        self.userListPrivate[id].append(conn1)
+        # 2º user
+        self.userListPrivate[id].append(username2)
+        self.userListPrivate[id].append(conn2)
 
-        if not user: continue
+    def getUserCommunicationPivate(self, data):
+        user = []
+        for dataTemp in self.userListPrivate:
+            for j, dataTemp_2 in enumerate(dataTemp):
+                if dataTemp_2 == data:
+                    if j < 2:
+                        user.append(dataTemp[2])
+                        user.append(dataTemp[3])
+                    else:
+                        user.append(dataTemp[0])
+                        user.append(dataTemp[1])
+                    return user
+        return None
 
-        userInvalid = searchUser(server, user)
+    def clearList(self, dataList, data):
+        for i, dataTemp in enumerate(dataList):
+            for dataTemp2 in dataTemp:
+                if dataTemp2 == data:
+                    if len(dataTemp) == 4:
+                        msg = '\nConversa privada encerrada!\n'
+                        if data == dataTemp[0] or data == dataTemp[1]:
+                            self.saveUser(dataTemp[2], dataTemp[3])
+                            self.sendPrivate(dataTemp[3], msg)
+                        else:
+                            self.saveUser(dataTemp[0], dataTemp[1])
+                            self.sendPrivate(dataTemp[1], msg)
+                    del dataList[i]
+                    return True
+        return False
 
-        if userInvalid is True:
-            server.sendData(conn, str(user) + ' já está sendo utilizado.')
-
-    return user
-
-
-def privateCommunication(server, conn, username, data, idUser_PrivateConversation, endConversation):
-    if idUser_PrivateConversation % 2 == 0:
-        userDest = server.userListPrivate[idUser_PrivateConversation + 1][0]
-    else:
-        userDest = server.userListPrivate[idUser_PrivateConversation - 1][0]
-
-    connDest = None
-    for dataTemp in server.userListPrivate:
-        if dataTemp[0] == userDest:
-            connDest = dataTemp[1]
-
-    if endConversation is False:
-        server.sendData(connDest, data)
-    else:
-        addDataUserList(server.userList, conn, username)
-        addDataUserList(server.userList, connDest, userDest)
-
-        textExit = '\nA conversa privada foi finalizada\nVocê voltou para o chat público\n'
-        server.sendData(conn, textExit)
-
-        data = '\n' + str(username) + ' saiu da conversa privada' + str(textExit)
-        server.sendData(connDest, data)
-
-        for i, dataTemp in enumerate(server.userListPrivate):  # clear list
-            if dataTemp[0] == username or dataTemp[0] == userDest:
-                del server.userListPrivate[i]
-                if i % 2 == 0:
-                    del server.userListPrivate[i]
-                else:
-                    del server.userListPrivate[i - 1]
-
-# end private communication
-
-
-def publicCommunication(server, conn, data):
-    for dataTemp in server.userList:
-        if dataTemp[1] != conn:
-            server.sendData(dataTemp[1], data)
-# end public communication
-
-
-def addDataUserList(listUser, conn, user):
-    listUser.append([])
-    position = len(listUser) - 1
-
-    listUser[position].append(user)
-    listUser[position].append(conn)
-
-
-def privateConnClear(server, user):
-    for i, dataTemp in enumerate(server.userList):
-        if dataTemp[0] == user:
-            del server.userList[i]
-            break
+    def clearAll_Lists(self, data):
+        self.clearList(self.userList, data)
+        self.clearList(self.userListPrivate, data)
 
 
 def sendData(server, conn):
-    user = defineUser(server, conn)
+    user = server.defineUser(conn)
 
     print str(user) + ' se conectou ao servidor'
 
-    addDataUserList(server.userList,conn,user)
-
-    msgUER = '\n** ' + str(user) + ' entrou na sala'
-    for dataTemp in server.userList: # msg user entered the room
-        if dataTemp[1] != conn:
-            server.sendData(dataTemp[1], msgUER)
+    msg = '\n** ' + str(user) + ' entrou na sala'
+    server.sendToAll(conn, msg)
 
     msg = 'Users connected: '
     for dataTemp in server.userList:
         msg = str(msg) + str(dataTemp[0]) + ' '
-    server.sendData(conn, msg)
+    server.sendToMe(conn, msg)
 
     control = True # control while
 
@@ -172,48 +175,57 @@ def sendData(server, conn):
         if data[0] == '@': # receiving messages
             username, msgReceive = data.split('>>', 1)
 
-            privateConversation = False
-            idUser_PrivateConversation = 0
-            endConversation = False
-
             msgReceive = msgReceive.replace(' ', '')
             msgReceive = msgReceive.replace('\n','')
 
+            endConversation = False
             if msgReceive == 'exit' or msgReceive == 'exitp':
                 endConversation = True
 
-            # checking if user is in private conversation list
-            for i, userTemp in enumerate(server.userListPrivate):
-                if userTemp[0] == username: # run names
-                    privateConversation = True
-                    idUser_PrivateConversation = i
-                    break
+            uerCoPrivate = []
+            uerCoPrivate = server.getUserCommunicationPivate(username)
 
-            if privateConversation is True: # private communication
-                privateCommunication(server, conn, username, data, idUser_PrivateConversation, endConversation)
+            if uerCoPrivate is not None: # private communication
+                userDest = uerCoPrivate[0]
+                connDest = uerCoPrivate[1]
+
+                if endConversation is False:
+                    server.sendPrivate(connDest, data)
+                else:
+                    textExit = '\nA conversa privada foi finalizada\nVocê voltou para o chat público\n'
+                    server.sendPrivate(conn, textExit)
+
+                    data = '\n' + str(username) + ' saiu da conversa privada' + str(textExit)
+                    server.sendPrivate(connDest, data)
+
+                    # userList -> public
+                    server.saveUser(username, conn)
+                    server.saveUser(userDest, connDest)
+
+                    server.clearList(server.userListPrivate, username)
             else : # public communication
                 if endConversation is True:
                     control = False
                     data = username + ' saiu da conversa'
 
-                publicCommunication(server, conn, data)
+                server.sendToAll(conn, data)
 
         elif data[0] == '#':  # private communication request
             trash, userSender, userReceiver = data.split('#') # user1 wants to talk to user2
-            flagUser = searchUser(server, userReceiver)
 
             if userSender == userReceiver:
-                flagUser = False
-
-            if flagUser is True:
-                newData = '+' + userSender
-                for dataTemp in server.userList:
-                    if dataTemp[0] == userReceiver:
-                        connReceiver = dataTemp[1]
-                        break
-                server.sendData(connReceiver, newData)
+                server.sendToMe(conn, '\nUsuário inválido!\n')
             else:
-                server.sendData(conn, '\nUsuário inválido!\n')
+                userReceiverData = []
+                userReceiverData = server.getUser(userReceiver)
+
+                if userReceiverData is not None:
+                    newData = '+' + userSender
+                    connUserReceiver = userReceiverData[1]
+                    server.sendPrivate(connUserReceiver, newData)
+                else:
+                    server.sendToMe(conn, '\nUsuário inválido!\n')
+
 
         elif data[0] == '!': # private communication accepted
             trash, user1, user2 = data.split('!')
@@ -221,29 +233,22 @@ def sendData(server, conn):
             msgUser1 = '\n' + str(user2) + ' aceitou a conversa privada\nPara sair digite exitp'
             msgUser2 = '\nVoce esta em um conversa privada com ' + str(user1) + '\nPara sair digite exitp\n'
 
-            connRes = getConn(server, user1)
-            server.sendData(connRes, msgUser1)
-            server.sendData(conn, msgUser2)
+            userRes = server.getUser(user1)
+            connRes = userRes[1]
+            server.sendPrivate(connRes, msgUser1)
+            server.sendPrivate(conn, msgUser2)
 
-            addDataUserList(server.userListPrivate, connRes, user1)
-            addDataUserList(server.userListPrivate, conn, user2)
+            server.clearList(server.userList, user1)
+            server.clearList(server.userList, user2)
 
-            privateConnClear(server, user1)
-            privateConnClear(server, user2)
+            server.setUsersCommunicationPivate(user1, connRes, user2, conn)
 
-    # end while
 
-    connTemp = None
-    for i, dataTemp in enumerate(server.userList): # clear userList
-        if dataTemp[1] == conn:
-            del server.userList[i] # conn
-            break
-
+    server.clearAll_Lists(conn)
     server.connections -= 1
     conn.close()
 
     print '\nstatus server: connections = ', server.connections
-
 
 def searchConnection(server):  # maps new connections
     try:
@@ -268,7 +273,7 @@ def searchConnection(server):  # maps new connections
 
 if __name__ == '__main__':
     host = 'localhost'
-    port = 12002
+    port = 12000
     connectionsMax = 15
 
     print 'host: ', host
@@ -283,3 +288,4 @@ if __name__ == '__main__':
 
     while True:
         pass
+

@@ -125,7 +125,7 @@ def sendData(client):
 
 if __name__ == '__main__':
     host = 'localhost'
-    port = 12002
+    port = 12000
     client = Client(host, port)
 
     sendData(client)
